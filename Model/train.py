@@ -50,14 +50,12 @@ def train(opt):
     writer = SummaryWriter(logdir='logs',filename_suffix=f'Train_{"_".join(opt.heads)}',comment='try1')
     for epoch in range(opt.epochs):
         model.train()
-        
+        Losses = {k:0 for k in opt.heads}
         description = f'Epoch:{epoch}| Total Loss:{verb_loss}'
         progress_bar = tqdm(train_generator,desc = description)
         
         for sample in progress_bar:
-            description = f'Epoch:{epoch}| Total Loss:{verb_loss}'
-            progress_bar.set_description(description)
-            
+                        
             imgs = sample['img'].to(device)
             gt_person_bbox = sample['person_bbox'].to(device)
             gt_face_bbox = sample['face_bbox'].to(device)
@@ -75,13 +73,20 @@ def train(opt):
                      'face':gt_face_bbox,'emotions':gt_emotions}
             
             losses = criterion(out,annot,out['anchors'])
-            print(losses)
+            
             loss = torch.zeros(1).to(device)
             loss = torch.sum(torch.cat(list(losses.values())))
             loss.backward()
             optimizer.step()
             verb_loss = loss.detach().cpu().numpy()
-
+            writer.add_scalar('Total',verb_loss,epoch)
+            description = f'Epoch:{epoch}| Total Loss:{verb_loss}|'
+            for k,v in losses.items():
+                Losses[k]+=v.detach().cpu().numpy()
+                writer.add_scalar(k,v.detach().cpu().numpy(),epoch)
+                description+=f'{k}:{round(np.mean(Losses[k]),2)}|'
+            progress_bar.set_description(description)
+            
             if epoch%100==0:
                 im = imgs[0]
                 regressBoxes = BBoxTransform()
@@ -113,7 +118,7 @@ if __name__=='__main__':
     parser.add_argument('--wd',type=int,default=0.8)
     parser.add_argument('--optim',type=str,default='Adam')
     parser.add_argument('--save_name',type=str,default='model4.pt')
-    parser.add_argument('--heads',nargs='+',default = ["gender","person","face","emotions"])
+    parser.add_argument('--heads',nargs='+',default = ["gender","person"])
 
     opt = parser.parse_args()
     print(f"Batch size: {opt.batch_size}")
