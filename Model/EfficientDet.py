@@ -219,7 +219,7 @@ class UpsampleBlock(nn.Module):
         super(UpsampleBlock,self).__init__()
         self.sf = scale_factor
         self.upscale = torch.nn.ConvTranspose2d(in_channels,in_channels,kernel_size=2,stride=2)
-        self.conv = Separable_Conv_Block(in_channels, in_channels, norm=False, activation=True)
+        self.conv = Separable_Conv_Block(in_channels, in_channels, norm=False, activation=False)
     
     def forward(self,input):
         for i in range(self.sf):
@@ -237,10 +237,10 @@ class PoseMap(nn.Module):
         self.bn_list = nn.ModuleList(
             [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
              range(3)])
-        self.up_list = nn.ModuleList([UpsampleBlock(1,scale_factor=i) for i in [2,4,8]])
+        self.up_list = nn.ModuleList([UpsampleBlock(1,scale_factor=i) for i in [2,3,4]])
         self.header = Separable_Conv_Block(in_channels, 1, norm=False, activation=False)
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
-        self.final = Separable_Conv_Block(5,1,norm=False,activation=False)
+        self.final = Separable_Conv_Block(3,1,norm=False,activation=False)
     
     def forward(self,inputs):
         feats = []
