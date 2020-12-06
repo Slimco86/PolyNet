@@ -238,7 +238,11 @@ if __name__=='__main__':
     age = batch['age'][idx].numpy()
     print(age.shape)
     print(landmarks.shape)
-    for p in range(face.shape[0]):
+    lm_mask = np.zeros((face.shape[0],1,256,256))
+    lm = landmarks//2
+    lm_mask[:,:,lm[:,:,1],lm[:,:,0]] = 1
+
+    for p in range(face.shape[0]):        
         if face[p][0]!=-1:
             cv2.rectangle(img,(face[p][0],face[p][1]),(face[p][2],face[p][3]),(0,0,255),2)
         if age[p]!=0:
@@ -247,6 +251,7 @@ if __name__=='__main__':
             cv2.circle(img,(landmarks[p][i][0],landmarks[p][i][1]),3,(150,0,255),cv2.FILLED)
     while True:
         cv2.imshow('test',img)
+        cv2.imshow('lm_mask', lm_mask.reshape(face.shape[0],256,256,1)[0])
         key = cv2.waitKey(10)
         if key == ord('q'):
             break

@@ -209,37 +209,50 @@ class BiFPN(nn.Module):
 
         return p3_out, p4_out, p5_out, p6_out, p7_out
 
+class UpsampleBlock(nn.Module):
+    """
+    A block to upscale the feature map with transpose convolutions.
+    Each pass, doubles the map edge size (quadropouls resolution).
+    This is used to build the hour glass decoder from different resolutions. 
+    """
+    def __init__(self,in_channels,scale_factor):
+        super(UpsampleBlock,self).__init__()
+        self.sf = scale_factor
+        self.upscale = torch.nn.ConvTranspose2d(in_channels,in_channels,kernel_size=2,stride=2)
+        self.conv = Separable_Conv_Block(in_channels, in_channels, norm=False, activation=True)
+    
+    def forward(self,input):
+        for i in range(self.sf):
+            input = self.upscale(input)
+            input = self.conv(input)
+        return input
+
 class PoseMap(nn.Module):
-    def __init__(self,in_channels,num_layers,out_dim=256,onnx_export=False):
+    def __init__(self,in_channels,num_layers,onnx_export=False):
         super(PoseMap,self).__init__()
         self.in_channels = in_channels
         self.num_layers = num_layers
-        self.out_dim = out_dim
         self.conv_list = nn.ModuleList(
             [Separable_Conv_Block(in_channels, in_channels, norm=False, activation=False) for i in range(num_layers)])
         self.bn_list = nn.ModuleList(
             [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
-             range(5)])
-        self.upsample5 = nn.Upsample(scale_factor=16)
-        self.upsample4 = nn.Upsample(scale_factor=8)
-        self.upsample3  = nn.Upsample(scale_factor=4)
+             range(3)])
+        self.up_list = nn.ModuleList([UpsampleBlock(1,scale_factor=i) for i in [2,4,8]])
         self.header = Separable_Conv_Block(in_channels, 1, norm=False, activation=False)
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
-        self.final = Separable_Conv_Block(3,1,norm=False,activation=False)
+        self.final = Separable_Conv_Block(5,1,norm=False,activation=False)
     
     def forward(self,inputs):
         feats = []
-        for feat, bn_list in zip(inputs, self.bn_list):
+        for feat, bn_list, up in zip(inputs[:3], self.bn_list,self.up_list):
             for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
                 feat = conv(feat)
                 feat = bn(feat)
                 feat = self.swish(feat)
             feat = self.header(feat)
+            feat = up(feat)
             feats.append(feat)
-        feats[0] = self.upsample3(feats[0])
-        feats[1] = self.upsample4(feats[1])
-        feats[2] = self.upsample5(feats[2])
-
+ 
         pmap = torch.cat(feats,dim=1)
         pmap = self.final(pmap)
         pmap = self.swish(pmap)
@@ -511,10 +524,10 @@ class EfficientDetMultiBackbone(nn.Module):
                                    num_layers=self.box_class_repeats[self.compound_coef])
         if 'pose' in self.heads:
             self.pose_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=self.box_class_repeats[self.compound_coef])
+                                   num_layers=1)
         if 'face_landmarks' in self.heads:
             self.fl_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=self.box_class_repeats[self.compound_coef])
+                                   num_layers=1)
         if 'age' in self.heads:
             self.age_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,reg_points=1,
                                    num_layers=self.box_class_repeats[self.compound_coef])

@@ -185,31 +185,20 @@ class FocalLoss(nn.Module):
                torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 
-class JointsMSELoss(nn.Module):
+class JointsLoss(nn.Module):
     def __init__(self, use_target_weight=True):
-        super(JointsMSELoss, self).__init__()
-        self.criterion = nn.MSELoss(reduction='mean')
+        super(JointsLoss, self).__init__()
+        self.criterion = nn.L1Loss(reduction='sum')
         self.use_target_weight = use_target_weight
 
-    def forward(self, output, target, target_weight):
-        batch_size = output.size(0)
-        num_joints = output.size(1)
-        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
-        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
-        loss = 0
-
-        for idx in range(num_joints):
-            heatmap_pred = heatmaps_pred[idx].squeeze()
-            heatmap_gt = heatmaps_gt[idx].squeeze()
-            if self.use_target_weight:
-                loss += 0.5 * self.criterion(
-                    heatmap_pred.mul(target_weight[:, idx]),
-                    heatmap_gt.mul(target_weight[:, idx])
-                )
-            else:
-                loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
-
-        return loss / num_joints
+    def forward(self, output, target):
+        num_joints = target.shape[1]
+        target_map = torch.zeros((target.shape[0],1,256,256)).cuda()
+        target = target/2
+        for b in range(target.shape[0]):
+            target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
+        loss = self.criterion(output,target_map)        
+        return (loss / num_joints).unsqueeze(0)
 
 
 
@@ -246,5 +235,17 @@ class MTLoss(nn.Module):
             fe_anot = torch.cat((face_annot.long(),gender_annot.unsqueeze(2)),2)
             emotions_loss,face_loss = FocalLoss()(pred_gender,pred_face_bbox,anchors,fe_anot)
             self.losses['face'] = face_loss
+
+        if 'face_landmarks' in self.heads:
+            pred_lm = pred['face_landmarks']
+            lm_anot = annot['face_landmarks']
+            lm_loss = JointsLoss(False)(pred_lm,lm_anot)
+            self.losses['face_landmarks'] = lm_loss
+        if 'pose' in self.heads:
+            pred_pose = pred['pose']
+            pose_anot = annot['pose']
+            pose_loss = JointsLoss(False)(pred_pose,pose_anot)
+            self.losses['pose'] = pose_loss
+
 
         return self.losses

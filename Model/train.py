@@ -70,7 +70,9 @@ def train(opt):
             optimizer.zero_grad()
             out = model(imgs)
             annot = {'person':gt_person_bbox,'gender':gt_gender,
-                     'face':gt_face_bbox,'emotions':gt_emotions}
+                     'face':gt_face_bbox,'emotions':gt_emotions,
+                     'face_landmarks':gt_face_landmarks,
+                     'pose':gt_pose}
             
             losses = criterion(out,annot,out['anchors'])
             
@@ -84,7 +86,7 @@ def train(opt):
             for k,v in losses.items():
                 Losses[k]+=v.detach().cpu().numpy()
                 writer.add_scalar(k,v.detach().cpu().numpy(),epoch)
-                description+=f'{k}:{round(np.mean(Losses[k]),2)}|'
+                description+=f'{k}:{round(np.mean(Losses[k]),1)}|'
             progress_bar.set_description(description)
             
             if epoch%100==0:
@@ -94,9 +96,21 @@ def train(opt):
                 pp = postprocess(imgs,
                       out['anchors'], out['person'], out['gender'],
                       regressBoxes, clipBoxes,
-                      0.4, 0.4)
+                      0.3, 0.3)
                 
                 writer.add_image_with_boxes('prediction',im,pp[0]['rois'],epoch)
+                img2 = out['face_landmarks'].permute(0,2,3,1)
+                img2 = img2[0].detach().cpu().numpy()
+                img2 = cv2.resize(img2,(512,512))
+                img2 = torch.from_numpy(img2).unsqueeze(0)
+                writer.add_image('landmarks prediction',img2,epoch)
+
+                target_map = torch.zeros((opt.batch_size,1,256,256))
+                target = gt_face_landmarks/2
+                for b in range(opt.batch_size):
+                    target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
+                writer.add_image('landmark target', target_map[0],epoch)
+                writer.add_image('target image', im,epoch)
 
 
 
@@ -118,7 +132,7 @@ if __name__=='__main__':
     parser.add_argument('--wd',type=int,default=0.8)
     parser.add_argument('--optim',type=str,default='Adam')
     parser.add_argument('--save_name',type=str,default='model4.pt')
-    parser.add_argument('--heads',nargs='+',default = ["gender","person"])
+    parser.add_argument('--heads',nargs='+',default = ["gender","person","face_landmarks"])
 
     opt = parser.parse_args()
     print(f"Batch size: {opt.batch_size}")
