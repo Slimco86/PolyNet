@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader,Dataset
 from torchvision import transforms 
 import cv2
 import json
+from scipy.signal import gaussian
 
 class AllInOneData(Dataset):
     def __init__(self, root_dir, set='train', required_types=[], transforms=None):
@@ -238,9 +239,19 @@ if __name__=='__main__':
     age = batch['age'][idx].numpy()
     print(age.shape)
     print(landmarks.shape)
-    lm_mask = np.zeros((face.shape[0],1,256,256))
-    lm = landmarks//2
+    lm_mask = np.zeros((face.shape[0],1,512,512))
+    lm = landmarks
     lm_mask[:,:,lm[:,:,1],lm[:,:,0]] = 1
+    k_size=15
+    krnl = gaussian(k_size,5).reshape(k_size,1)
+    krnl = np.outer(krnl,krnl)*35
+    print(krnl)
+    krnl = torch.from_numpy(krnl).view(1,1,k_size,k_size)
+    # Gausian kernel for heatmap generation!!!
+    lm_mask = torch.nn.functional.conv2d(torch.from_numpy(lm_mask).long(),krnl.long(),padding=(k_size-1)//2)
+    lm_mask = lm_mask.numpy()
+    lm_mask = lm_mask/np.max(lm_mask)
+    
 
     for p in range(face.shape[0]):        
         if face[p][0]!=-1:
@@ -251,7 +262,7 @@ if __name__=='__main__':
             cv2.circle(img,(landmarks[p][i][0],landmarks[p][i][1]),3,(150,0,255),cv2.FILLED)
     while True:
         cv2.imshow('test',img)
-        cv2.imshow('lm_mask', lm_mask.reshape(face.shape[0],256,256,1)[0])
+        cv2.imshow('lm_mask',cv2.applyColorMap((255*lm_mask[0,0]).astype(np.uint8),cv2.COLORMAP_JET))
         key = cv2.waitKey(10)
         if key == ord('q'):
             break

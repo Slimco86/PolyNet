@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import cv2
 import numpy as np
-
+from scipy.signal import gaussian
 #from utils import BBoxTransform, ClipBoxes
 #from utils import postprocess, invert_affine, display
 from collections import namedtuple
@@ -184,12 +184,45 @@ class FocalLoss(nn.Module):
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
                torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
+class AdaptiveWingLoss(nn.Module):
+    def __init__(self, omega=14, theta=0.5, epsilon=1, alpha=2.1):
+        super(AdaptiveWingLoss, self).__init__()
+        self.omega = omega
+        self.theta = theta
+        self.epsilon = epsilon
+        self.alpha = alpha
+
+    def forward(self, pred, target):
+        '''
+        :param pred: BxNxHxH
+        :param target: BxNxHxH
+        :return:
+        '''
+
+        y = target
+        y_hat = pred
+        delta_y = (y - y_hat).abs()
+        delta_y1 = delta_y[delta_y < self.theta]
+        delta_y2 = delta_y[delta_y >= self.theta]
+        y1 = y[delta_y < self.theta]
+        y2 = y[delta_y >= self.theta]
+        loss1 = self.omega * torch.log(1 + torch.pow(delta_y1 / self.omega, self.alpha - y1))
+        A = self.omega * (1 / (1 + torch.pow(self.theta / self.epsilon, self.alpha - y2))) * (self.alpha - y2) * (
+            torch.pow(self.theta / self.epsilon, self.alpha - y2 - 1)) * (1 / self.epsilon)
+        C = self.theta * A - self.omega * torch.log(1 + torch.pow(self.theta / self.epsilon, self.alpha - y2))
+        loss2 = A * delta_y2 - C
+        return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
 
 class JointsLoss(nn.Module):
     def __init__(self, use_target_weight=True):
         super(JointsLoss, self).__init__()
-        self.criterion = nn.L1Loss(reduction='sum')
+        self.criterion = AdaptiveWingLoss()
         self.use_target_weight = use_target_weight
+        self.k_size=15
+        krnl = gaussian(self.k_size,5).reshape(self.k_size,1)
+        krnl = np.outer(krnl,krnl)*35
+        krnl = torch.from_numpy(krnl).reshape(1,1,self.k_size,self.k_size).type(torch.FloatTensor)
+        self.krnl = krnl.cuda()
 
     def forward(self, output, target):
         num_joints = target.shape[1]
@@ -197,7 +230,11 @@ class JointsLoss(nn.Module):
         target = target/2
         for b in range(target.shape[0]):
             target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
-        loss = self.criterion(output,target_map)        
+        
+        # Gausian kernel for heatmap generation!!!
+        lm_mask = torch.nn.functional.conv2d(target_map,self.krnl,padding=(self.k_size-1)//2)
+        lm_mask = lm_mask/torch.max(lm_mask)
+        loss = self.criterion(output,lm_mask)        
         return (loss / num_joints).unsqueeze(0)
 
 
@@ -240,7 +277,7 @@ class MTLoss(nn.Module):
             pred_lm = pred['face_landmarks']
             lm_anot = annot['face_landmarks']
             lm_loss = JointsLoss(False)(pred_lm,lm_anot)
-            self.losses['face_landmarks'] = lm_loss
+            self.losses['face_landmarks'] = lm_loss*100
         if 'pose' in self.heads:
             pred_pose = pred['pose']
             pose_anot = annot['pose']

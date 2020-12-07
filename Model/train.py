@@ -96,7 +96,7 @@ def train(opt):
                 pp = postprocess(imgs,
                       out['anchors'], out['person'], out['gender'],
                       regressBoxes, clipBoxes,
-                      0.3, 0.3)
+                      0.4, 0.4)
                 
                 writer.add_image_with_boxes('prediction',im,pp[0]['rois'],epoch)
                 img2 = out['face_landmarks'].permute(0,2,3,1)
