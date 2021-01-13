@@ -54,7 +54,7 @@ class AllInOneData(Dataset):
     def prepare_bbox(self,annot):
         bbox = np.array(annot,dtype=np.float16)
         if bbox.shape[0]==0:
-            return np.ones((1,4))
+            return np.array([-1,-1,-1,-1],dtype=np.float16)
         else:
             bbox[0:4:2] = bbox[0:4:2]#/self.img_w
             bbox[1:5:2] = bbox[1:5:2]#/self.img_h
@@ -63,8 +63,8 @@ class AllInOneData(Dataset):
     
     def prepare_cls(self,annot,key):
         prop = annot[key]
-        if prop == []:
-            return np.array([])
+        if prop == [] or prop is None:
+            prop = getattr(self,key).index("unknown")
         else:
             prop = getattr(self,key).index(str(annot[key]))
         return prop
@@ -77,7 +77,7 @@ class AllInOneData(Dataset):
 
         if annot[key] is not None and len(annot[key])!=0:
             for p in range(len(annot[key])):
-                if len(annot[key][p])==0:
+                if type(annot[key][p]) is int or len(annot[key][p])==0:
                     continue
                 out[p,:] = annot[key][p][:2]
         return out
@@ -87,19 +87,10 @@ class AllInOneData(Dataset):
     
     def prepare_age(self,annot):
         try:
-            age = np.array(annot['age'],dtype=np.int8)
+            age = np.array(annot['age'],dtype=np.int8)    
+            return age
         except TypeError:
-            if annot['age'] == []:
-                return(np.ones(1,dtype=np.int8)*-1)
-            else:
-                age = []
-                for a in annot['age']:
-                    if a is None or a =='null' or a==[]:
-                        age.append(-1)
-                    else:
-                        age.append(a)
-                age = np.array(age,dtype=np.int8)
-        return age
+            return -1
 
 
     def load_annotations(self,image_idx):
@@ -137,11 +128,11 @@ def collater(data):
     # Maximum persons on one image in batch
     mbp = max([len(list(i.keys())) for i in annots])
     #equlize number of persons on all the images and fill with dummies
-    for annot in annots:    
+    for annot in annots:   
         for k in range(mbp): 
             if f'id{k+1}' not in annot.keys():
                 annot[f'id{k+1}'] = {}
-                annot[f'id{k+1}']['age'] = 0
+                annot[f'id{k+1}']['age'] = np.array(-1).astype(np.int8)
                 annot[f'id{k+1}']['gender'] = -1 
                 annot[f'id{k+1}']['emotion'] = -1
                 annot[f'id{k+1}']['race'] = -1
@@ -223,7 +214,7 @@ class Normalizer(object):
 
 if __name__=='__main__':
     idx=0
-    ds = AllInOneData('./datasets/Train2020',set='test',transforms = transforms.Compose([Normalizer(),Resizer()]))
+    ds = AllInOneData('./datasets/Train2021',set='train',transforms = transforms.Compose([Normalizer(),Resizer()]))
     loader = DataLoader(ds,batch_size=3,shuffle=True,collate_fn=collater)
     batch = next(iter(loader))
     img = batch['img'][idx].permute(1,2,0)
@@ -239,20 +230,20 @@ if __name__=='__main__':
     age = batch['age'][idx].numpy()
     print(age.shape)
     print(landmarks.shape)
-    lm_mask = np.zeros((face.shape[0],1,512,512))
-    lm = landmarks
+    lm_mask = np.zeros((face.shape[0],1,256,256))
+    lm = landmarks//2
     lm_mask[:,:,lm[:,:,1],lm[:,:,0]] = 1
-    k_size=15
-    krnl = gaussian(k_size,5).reshape(k_size,1)
-    krnl = np.outer(krnl,krnl)*35
-    print(krnl)
+    k_size=7
+    krnl = gaussian(k_size,2).reshape(k_size,1)
+    krnl = np.outer(krnl,krnl)*255
+    #print(krnl)
     krnl = torch.from_numpy(krnl).view(1,1,k_size,k_size)
     # Gausian kernel for heatmap generation!!!
     lm_mask = torch.nn.functional.conv2d(torch.from_numpy(lm_mask).long(),krnl.long(),padding=(k_size-1)//2)
     lm_mask = lm_mask.numpy()
     lm_mask = lm_mask/np.max(lm_mask)
     
-
+    print(face.shape)
     for p in range(face.shape[0]):        
         if face[p][0]!=-1:
             cv2.rectangle(img,(face[p][0],face[p][1]),(face[p][2],face[p][3]),(0,0,255),2)

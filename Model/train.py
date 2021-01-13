@@ -23,11 +23,11 @@ from loss import FocalLoss, MTLoss
 
 def train(opt):
     
-    train_data = AllInOneData(opt.train_path,set='test',transforms=transforms.Compose([Normalizer(),Resizer()]))
+    train_data = AllInOneData(opt.train_path,set='train',transforms=transforms.Compose([Normalizer(),Resizer()]))
     train_generator = torch.utils.data.DataLoader(train_data,batch_size=opt.batch_size,shuffle=True,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
 
-    valid_data = AllInOneData(opt.train_path,set='test',transforms=transforms.Compose([Normalizer(),Resizer()]))
+    valid_data = AllInOneData(opt.train_path,set='validation',transforms=transforms.Compose([Normalizer(),Resizer()]))
     valid_generator = torch.utils.data.DataLoader(valid_data,batch_size=opt.batch_size,shuffle=False,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
     
@@ -48,6 +48,9 @@ def train(opt):
     print(f'Targets are {opt.heads}.')
     verb_loss = 0
     writer = SummaryWriter(logdir='logs',filename_suffix=f'Train_{"_".join(opt.heads)}',comment='try1')
+    #dummy = torch.ones([1,3,512,512]).cuda()
+    #writer.add_graph(model,dummy)
+    
     for epoch in range(opt.epochs):
         model.train()
         Losses = {k:0 for k in opt.heads}
@@ -89,7 +92,7 @@ def train(opt):
                 description+=f'{k}:{round(np.mean(Losses[k]),1)}|'
             progress_bar.set_description(description)
             
-            if epoch%100==0:
+            if epoch%1==0:
                 im = imgs[0]
                 regressBoxes = BBoxTransform()
                 clipBoxes = ClipBoxes()
@@ -107,6 +110,7 @@ def train(opt):
 
                 target_map = torch.zeros((opt.batch_size,1,256,256))
                 target = gt_face_landmarks/2
+                target = torch.clamp(target,0,255)
                 for b in range(opt.batch_size):
                     target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
                 writer.add_image('landmark target', target_map[0],epoch)
@@ -123,8 +127,8 @@ def train(opt):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train_path',type=str,default='./datasets/Train2020')
-    parser.add_argument('--epochs',type=int,default=2000)
+    parser.add_argument('--train_path',type=str,default='./datasets/Train2021')
+    parser.add_argument('--epochs',type=int,default=100)
     parser.add_argument('--valid_step',type=int,default=1)
     parser.add_argument('--lr',type=int,default=1e-4)
     parser.add_argument('--batch_size',type=int,default=3)

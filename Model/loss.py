@@ -218,16 +218,17 @@ class JointsLoss(nn.Module):
         super(JointsLoss, self).__init__()
         self.criterion = AdaptiveWingLoss()
         self.use_target_weight = use_target_weight
-        self.k_size=15
-        krnl = gaussian(self.k_size,5).reshape(self.k_size,1)
-        krnl = np.outer(krnl,krnl)*35
+        self.k_size=7
+        krnl = gaussian(self.k_size,2).reshape(self.k_size,1)
+        krnl = np.outer(krnl,krnl)*255
         krnl = torch.from_numpy(krnl).reshape(1,1,self.k_size,self.k_size).type(torch.FloatTensor)
         self.krnl = krnl.cuda()
 
     def forward(self, output, target):
         num_joints = target.shape[1]
         target_map = torch.zeros((target.shape[0],1,256,256)).cuda()
-        target = target/2
+        target = target//2
+        target = torch.clamp(target,0,255)
         for b in range(target.shape[0]):
             target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
         

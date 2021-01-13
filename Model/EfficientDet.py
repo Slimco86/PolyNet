@@ -1,3 +1,4 @@
+import tensorboardX
 import torch.nn as nn
 import torch
 from torchvision.ops.boxes import nms as nms_torch
@@ -241,23 +242,33 @@ class PoseMap(nn.Module):
         self.header = Separable_Conv_Block(in_channels, 1, norm=False, activation=False)
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
         self.final = Separable_Conv_Block(3,1,norm=False,activation=False)
+        self.swish2 = MemoryEfficientSwish() if not onnx_export else Swish()
+        #self.down_sample = torch.nn.Conv2d(1,1,1,2)
     
     def forward(self,inputs):
         feats = []
+        prev_map = torch.zeros((inputs[0].shape[0],1,inputs[0].shape[2],inputs[0].shape[3])).cuda()
         for feat, bn_list, up in zip(inputs[:3], self.bn_list,self.up_list):
             for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
                 feat = conv(feat)
                 feat = bn(feat)
                 feat = self.swish(feat)
+            
             feat = self.header(feat)
+            #scale = prev_map.shape[-1]//feat.shape[-1]
+            #for j in range(scale-1):
+                #prev_map = self.down_sample(prev_map)
+            #feat = torch.add(feat,prev_map)
+            #prev_map = feat
             feat = up(feat)
             feats.append(feat)
  
         pmap = torch.cat(feats,dim=1)
         pmap = self.final(pmap)
-        pmap = self.swish(pmap)
+        pmap = self.swish2(pmap)
         return pmap
-        
+
+
 
 class Regressor(nn.Module):
     """
@@ -524,10 +535,10 @@ class EfficientDetMultiBackbone(nn.Module):
                                    num_layers=self.box_class_repeats[self.compound_coef])
         if 'pose' in self.heads:
             self.pose_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=1)
+                                   num_layers=self.box_class_repeats[self.compound_coef])
         if 'face_landmarks' in self.heads:
             self.fl_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=1)
+                                   num_layers=self.box_class_repeats[self.compound_coef])
         if 'age' in self.heads:
             self.age_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,reg_points=1,
                                    num_layers=self.box_class_repeats[self.compound_coef])
@@ -543,7 +554,7 @@ class EfficientDetMultiBackbone(nn.Module):
                 m.eval()
 
     def forward(self, inputs):
-        out = {'features':None,'person':None,'anchors':None}
+        out = {'person':None,'anchors':None}
         max_size = inputs.shape[-1]
 
         _, p3, p4, p5 = self.backbone_net(inputs)
@@ -591,11 +602,13 @@ class EfficientDetMultiBackbone(nn.Module):
 
 
 if __name__ == '__main__':
+
     p3 = torch.randn((3,10,64,64))
     p4 = torch.randn((3,10,32,32))
     p5 = torch.randn((3,10,16,16))
-
+    summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP',comment='try1')
     pm = PoseMap(10,3)
     out = pm([p3,p4,p5])
+    summary.add_graph(pm,input_to_model=[[p3,p4,p5]],verbose=True)
+    summary.close()
     print(out.shape)
-    print(out)
