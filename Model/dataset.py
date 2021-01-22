@@ -214,7 +214,7 @@ class Normalizer(object):
 
 if __name__=='__main__':
     idx=0
-    ds = AllInOneData('./datasets/Train2021',set='train',transforms = transforms.Compose([Normalizer(),Resizer()]))
+    ds = AllInOneData('./datasets/Train2021',set='test',transforms = transforms.Compose([Normalizer(),Resizer()]))
     loader = DataLoader(ds,batch_size=3,shuffle=True,collate_fn=collater)
     batch = next(iter(loader))
     img = batch['img'][idx].permute(1,2,0)
@@ -230,11 +230,11 @@ if __name__=='__main__':
     age = batch['age'][idx].numpy()
     print(age.shape)
     print(landmarks.shape)
-    lm_mask = np.zeros((face.shape[0],1,256,256))
-    lm = landmarks//2
+    lm_mask = np.zeros((face.shape[0],1,512,512))
+    lm = landmarks
     lm_mask[:,:,lm[:,:,1],lm[:,:,0]] = 1
     k_size=7
-    krnl = gaussian(k_size,2).reshape(k_size,1)
+    krnl = gaussian(k_size,3).reshape(k_size,1)
     krnl = np.outer(krnl,krnl)*255
     #print(krnl)
     krnl = torch.from_numpy(krnl).view(1,1,k_size,k_size)

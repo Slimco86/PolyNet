@@ -219,16 +219,16 @@ class JointsLoss(nn.Module):
         self.criterion = AdaptiveWingLoss()
         self.use_target_weight = use_target_weight
         self.k_size=7
-        krnl = gaussian(self.k_size,2).reshape(self.k_size,1)
+        krnl = gaussian(self.k_size,3).reshape(self.k_size,1)
         krnl = np.outer(krnl,krnl)*255
         krnl = torch.from_numpy(krnl).reshape(1,1,self.k_size,self.k_size).type(torch.FloatTensor)
         self.krnl = krnl.cuda()
 
     def forward(self, output, target):
         num_joints = target.shape[1]
-        target_map = torch.zeros((target.shape[0],1,256,256)).cuda()
-        target = target//2
-        target = torch.clamp(target,0,255)
+        target_map = torch.zeros((target.shape[0],1,512,512)).cuda()
+        target = target
+        target = torch.clamp(target,0,511)
         for b in range(target.shape[0]):
             target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
         
@@ -236,7 +236,7 @@ class JointsLoss(nn.Module):
         lm_mask = torch.nn.functional.conv2d(target_map,self.krnl,padding=(self.k_size-1)//2)
         lm_mask = lm_mask/torch.max(lm_mask)
         loss = self.criterion(output,lm_mask)        
-        return (loss / num_joints).unsqueeze(0)
+        return (loss / num_joints).unsqueeze(0) , lm_mask
 
 
 
@@ -277,7 +277,7 @@ class MTLoss(nn.Module):
         if 'face_landmarks' in self.heads:
             pred_lm = pred['face_landmarks']
             lm_anot = annot['face_landmarks']
-            lm_loss = JointsLoss(False)(pred_lm,lm_anot)
+            lm_loss, lm_mask = JointsLoss(False)(pred_lm,lm_anot)
             self.losses['face_landmarks'] = lm_loss*100
         if 'pose' in self.heads:
             pred_pose = pred['pose']
@@ -286,4 +286,4 @@ class MTLoss(nn.Module):
             self.losses['pose'] = pose_loss
 
 
-        return self.losses
+        return self.losses, lm_mask

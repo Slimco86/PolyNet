@@ -19,11 +19,19 @@ from dataset import *
 from loss import FocalLoss, MTLoss
 #from util.sync_batchnorm import patch_replication_callback
 #from util import replace_w_sync_bn, CustomDataParallel, get_last_weights, init_weights
-
+from datetime import datetime
 
 def train(opt):
+    date = datetime.date(datetime.now())
+    logs = './logs/'
+    logdir = os.path.join(logs,str(date))
+    if not os.path.exists(logdir):
+        os.mkdir(logdir)
+    else:
+        logdir = logdir+"_"+str(np.random.randint(0,1000))
+        os.mkdir(logdir)
     
-    train_data = AllInOneData(opt.train_path,set='train',transforms=transforms.Compose([Normalizer(),Resizer()]))
+    train_data = AllInOneData(opt.train_path,set='test',transforms=transforms.Compose([Normalizer(),Resizer()]))
     train_generator = torch.utils.data.DataLoader(train_data,batch_size=opt.batch_size,shuffle=True,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
 
@@ -47,7 +55,7 @@ def train(opt):
     print('Model is successfully initiated')
     print(f'Targets are {opt.heads}.')
     verb_loss = 0
-    writer = SummaryWriter(logdir='logs',filename_suffix=f'Train_{"_".join(opt.heads)}',comment='try1')
+    writer = SummaryWriter(logdir=logdir,filename_suffix=f'Train_{"_".join(opt.heads)}',comment='try1')
     #dummy = torch.ones([1,3,512,512]).cuda()
     #writer.add_graph(model,dummy)
     
@@ -77,7 +85,7 @@ def train(opt):
                      'face_landmarks':gt_face_landmarks,
                      'pose':gt_pose}
             
-            losses = criterion(out,annot,out['anchors'])
+            losses, lm_mask = criterion(out,annot,out['anchors'])
             
             loss = torch.zeros(1).to(device)
             loss = torch.sum(torch.cat(list(losses.values())))
@@ -92,7 +100,7 @@ def train(opt):
                 description+=f'{k}:{round(np.mean(Losses[k]),1)}|'
             progress_bar.set_description(description)
             
-            if epoch%1==0:
+            if epoch%100==0:
                 im = imgs[0]
                 regressBoxes = BBoxTransform()
                 clipBoxes = ClipBoxes()
@@ -102,24 +110,21 @@ def train(opt):
                       0.4, 0.4)
                 
                 writer.add_image_with_boxes('prediction',im,pp[0]['rois'],epoch)
-                img2 = out['face_landmarks'].permute(0,2,3,1)
-                img2 = img2[0].detach().cpu().numpy()
-                img2 = cv2.resize(img2,(512,512))
-                img2 = torch.from_numpy(img2).unsqueeze(0)
-                writer.add_image('landmarks prediction',img2,epoch)
+                img2 = out['face_landmarks']
+                writer.add_images('landmarks prediction',img2,epoch)
 
-                target_map = torch.zeros((opt.batch_size,1,256,256))
-                target = gt_face_landmarks/2
-                target = torch.clamp(target,0,255)
-                for b in range(opt.batch_size):
-                    target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
-                writer.add_image('landmark target', target_map[0],epoch)
-                writer.add_image('target image', im,epoch)
+                #target_map = torch.zeros((opt.batch_size,1,512,512))
+                #target = gt_face_landmarks
+                #target = torch.clamp(target,0,511)
+                #for b in range(opt.batch_size):
+                    #target_map[b,:,target[b,:,:,1].long(),target[b,:,:,0].long()] = 1
+                writer.add_images('landmark target', lm_mask,epoch)
+                #writer.add_image('target image', im,epoch)
 
 
-
-        #torch.save(model.state_dict(),f'./logs/trained_models/{opt.save_name.split(".pt")[0]}_{epoch}.pt')
-        
+            if epoch%1000==0:
+                torch.save(model.state_dict(),f'{logdir}/{opt.save_name.split(".pt")[0]}_epoch_{epoch}.pt')
+    torch.save(model.state_dict(),f'{logdir}/{opt.save_name.split(".pt")[0]}_last.pt')
         
              
 
@@ -128,9 +133,9 @@ def train(opt):
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_path',type=str,default='./datasets/Train2021')
-    parser.add_argument('--epochs',type=int,default=100)
+    parser.add_argument('--epochs',type=int,default=10000)
     parser.add_argument('--valid_step',type=int,default=1)
-    parser.add_argument('--lr',type=int,default=1e-4)
+    parser.add_argument('--lr',type=int,default=1e-3)
     parser.add_argument('--batch_size',type=int,default=3)
     parser.add_argument('--momentum',type=int,default=0.9)
     parser.add_argument('--wd',type=int,default=0.8)

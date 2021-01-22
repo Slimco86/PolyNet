@@ -2,7 +2,7 @@ import tensorboardX
 import torch.nn as nn
 import torch
 from torchvision.ops.boxes import nms as nms_torch
-
+import numpy as np
 from EfficientNet import EfficientNet as EffNet
 from util import MemoryEfficientSwish, Swish
 from util import Conv2dSamePadding, MaxPool2dSamePadding, Anchors
@@ -26,7 +26,7 @@ class Separable_Conv_Block(nn.Module):
 
         self.norm = norm
         if self.norm:
-            self.bn = nn.BatchNorm2d(out_channels,momentum=0.01,eps=1e-3)
+            self.bn = nn.BatchNorm2d(out_channels,momentum=0.9,eps=1e-3)
 
         self.activation = activation
         if self.activation:
@@ -243,7 +243,7 @@ class PoseMap(nn.Module):
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
         self.final = Separable_Conv_Block(3,1,norm=False,activation=False)
         self.swish2 = MemoryEfficientSwish() if not onnx_export else Swish()
-        #self.down_sample = torch.nn.Conv2d(1,1,1,2)
+        self.down_sample = torch.nn.Conv2d(1,1,1,2)
     
     def forward(self,inputs):
         feats = []
@@ -255,11 +255,11 @@ class PoseMap(nn.Module):
                 feat = self.swish(feat)
             
             feat = self.header(feat)
-            #scale = prev_map.shape[-1]//feat.shape[-1]
-            #for j in range(scale-1):
-                #prev_map = self.down_sample(prev_map)
-            #feat = torch.add(feat,prev_map)
-            #prev_map = feat
+            scale = prev_map.shape[-1]//feat.shape[-1]
+            for j in range(scale-1):
+                prev_map = self.down_sample(prev_map)
+            feat = torch.add(feat,prev_map)
+            prev_map = feat
             feat = up(feat)
             feats.append(feat)
  
@@ -267,6 +267,61 @@ class PoseMap(nn.Module):
         pmap = self.final(pmap)
         pmap = self.swish2(pmap)
         return pmap
+
+class PoseMap2(nn.Module):
+    "UNET-type regressor"
+    def __init__(self,in_channels,onnx_export = False):
+        super(PoseMap2,self).__init__()
+        self.in_channels1 = in_channels
+        
+        self.conv_11 = Separable_Conv_Block(in_channels[0],activation=True)
+        self.conv_12 = Separable_Conv_Block(in_channels[0],activation=True)
+
+        self.conv_21 = Separable_Conv_Block(in_channels[1],activation=True)
+        self.conv_22 = Separable_Conv_Block(in_channels[1],activation=True)
+
+        self.conv_31 = Separable_Conv_Block(in_channels[2],activation=True)
+        self.conv_32 = Separable_Conv_Block(in_channels[2],activation=True)
+
+        self.conv_41 = Separable_Conv_Block(in_channels[3],activation=True)
+        self.conv_42 = Separable_Conv_Block(in_channels[3],activation=True)
+
+        self.up = torch.nn.Upsample(scale_factor=2)
+        self.conv_3u2 = Separable_Conv_Block(in_channels[3],40,activation=True)
+        self.conv_2u2 = Separable_Conv_Block(40,40,activation=True)
+        self.conv_2u1 = Separable_Conv_Block(in_channels[2]+40,32,activation=True)
+        self.conv_1u1 = Separable_Conv_Block(32,32,activation=True)
+        self.conv_1u0 = Separable_Conv_Block(in_channels[1]+32,16,activation=True)
+        self.conv_0u0 = Separable_Conv_Block(16,16,activation=True)
+        self.conv_0 = Separable_Conv_Block(3+16,1,activation=True)
+        self.final = Separable_Conv_Block(1,1,norm=False,activation=False)
+        self.sigm = torch.nn.ReLU()
+        
+    def forward(self,inputs):
+        l0,l1,l2,l3 = inputs
+        l0 = self.conv_11(l0)
+        l0 = self.conv_12(l0)
+        l1 = self.conv_21(l1)
+        l1 = self.conv_22(l1)
+        l2 = self.conv_31(l2)
+        l2 = self.conv_32(l2)
+        l3 = self.conv_41(l3)
+        l3 = self.conv_42(l3)
+        l3 = self.conv_3u2(l3)
+        l3 = self.conv_2u2(l3)
+
+        out = torch.cat((self.up(l3),l2),dim = 1)
+        out = self.conv_2u1(out)
+        out = self.conv_1u1(out)
+        out = torch.cat((self.up(out),l1),dim=1)
+        out = self.conv_1u0(out)
+        out = self.conv_0u0(out)
+        out = torch.cat((self.up(out),l0),dim=1)
+        out = self.conv_0(out)
+        out = self.final(out)
+        out = self.sigm(out)
+        return out
+        
 
 
 
@@ -381,7 +436,7 @@ class EfficientNet(nn.Module):
                 feature_maps.append(x)
             last_x = x
         del last_x
-        return feature_maps[1:]
+        return feature_maps[:]
 
 
 class EfficientDetBackbone(nn.Module):
@@ -537,8 +592,7 @@ class EfficientDetMultiBackbone(nn.Module):
             self.pose_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
                                    num_layers=self.box_class_repeats[self.compound_coef])
         if 'face_landmarks' in self.heads:
-            self.fl_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=self.box_class_repeats[self.compound_coef])
+            self.fl_regressor = PoseMap2(in_channels=[3,16,24,40])
         if 'age' in self.heads:
             self.age_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,reg_points=1,
                                    num_layers=self.box_class_repeats[self.compound_coef])
@@ -556,8 +610,8 @@ class EfficientDetMultiBackbone(nn.Module):
     def forward(self, inputs):
         out = {'person':None,'anchors':None}
         max_size = inputs.shape[-1]
-
-        _, p3, p4, p5 = self.backbone_net(inputs)
+        p0 = inputs
+        p1, p2, p3, p4, p5 = self.backbone_net(inputs)
 
         features = (p3, p4, p5)
         features = self.bifpn(features)
@@ -574,7 +628,7 @@ class EfficientDetMultiBackbone(nn.Module):
             age = self.age_regressor(features)
             out['age'] = age
         if "face_landmarks" in self.heads:
-            face_landmarks = self.fl_regressor(features)
+            face_landmarks = self.fl_regressor((p0,p1,p2,p3))
             out['face_landmarks'] = face_landmarks
         gender  = self.gender_classifier(features)
         out['gender'] = gender
@@ -602,7 +656,7 @@ class EfficientDetMultiBackbone(nn.Module):
 
 
 if __name__ == '__main__':
-
+    """
     p3 = torch.randn((3,10,64,64))
     p4 = torch.randn((3,10,32,32))
     p5 = torch.randn((3,10,16,16))
@@ -610,5 +664,16 @@ if __name__ == '__main__':
     pm = PoseMap(10,3)
     out = pm([p3,p4,p5])
     summary.add_graph(pm,input_to_model=[[p3,p4,p5]],verbose=True)
+    summary.close()
+    print(out.shape)
+    """
+    p0 = torch.randn((3,3,512,512))
+    p1 = torch.randn((3,16,256,256))
+    p2 = torch.randn((3,24,128,128))
+    p3 = torch.randn((3,40,64,64))
+    pm = PoseMap2([3,16,24,40])
+    out = pm([p0,p1,p2,p3])
+    summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP2',comment='try1')
+    summary.add_graph(pm,input_to_model=[[p0,p1,p2,p3]],verbose=True)
     summary.close()
     print(out.shape)

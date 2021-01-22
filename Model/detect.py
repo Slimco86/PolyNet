@@ -2,7 +2,8 @@ import datetime
 import os
 import argparse
 import traceback
-
+from rutines import postprocess
+from util import BBoxTransform, ClipBoxes
 import torch
 import yaml
 from torch import nn
@@ -19,10 +20,11 @@ from loss import FocalLoss, MTLoss
 
 
 cap = cv2.VideoCapture(0)
-model = EfficientDetMultiBackbone(0)
-model.init_backbone('logs/trained_models/best_model4.pt')
-model.freeze_bn()
+path = 'logs/trained_models/model4_last.pt'
+model = EfficientDetMultiBackbone('./datasets/Train2021',compound_coef=0)
+model.load_state_dict(torch.load(path),strict=False)
 model.cuda()
+model.requires_grad_(False)
 model.eval()
 mean = np.array([0.485, 0.456, 0.406])
 std=np.array([0.229, 0.224, 0.225])
@@ -50,25 +52,35 @@ while True:
 
         new_image = np.zeros((img_size, img_size, 3))
         new_image[0:resized_height, 0:resized_width] = image
+        im_ov = new_image*255
+        im_ov = im_ov.astype(np.uint8)
         ni = torch.from_numpy(new_image).permute(2,0,1).unsqueeze(0).to(torch.float32).cuda()
-        features, person_bbox, face_bbox, face_landmarks, pose,age, gender,race, skin, emotion, anchors = model(ni)
-        race = race[0].detach().cpu().numpy()
-        positive_ind = np.where(race>0.65)[0]
+        out = model(ni)
+        gender = out['gender']
+        gender = gender[0].detach().cpu().numpy()
+        positive_ind = np.where(gender>0.8)[0]
+        person_bbox = out['person'][0].detach().cpu().numpy()
+        face_landmarks = out['face_landmarks']
+        face_landmarks = face_landmarks.permute(0,2,3,1)
+        face_landmarks = face_landmarks[0].detach().cpu().numpy().astype(np.float32)
+        face_landmarks = face_landmarks/np.max(face_landmarks)
 
-        if positive_ind.shape[0]>0:
-            face_bbox = face_bbox[0,positive_ind].detach().cpu().numpy()
-            face_landmarks = face_landmarks[0,positive_ind].detach().cpu().numpy().astype(np.int64)
-            age = age[0,positive_ind].detach().cpu().numpy().astype(np.int64)
-
+        regressBoxes = BBoxTransform()
+        clipBoxes = ClipBoxes()
+        pp = postprocess(ni,
+                      out['anchors'], out['person'], out['gender'],
+                      regressBoxes, clipBoxes,
+                      0.8, 0.2)
             
-            for box,lm,ag in zip(face_bbox.astype(np.int64),face_landmarks,age):
-                cv2.rectangle(new_image,(box[0],box[1]),(box[2],box[3]),(0,0,255),2)
-                cv2.putText(new_image,str(ag),(box[0],box[1]+10),cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),2,cv2.LINE_AA)
-                for i in range(0,lm.shape[0],2):
-                    cv2.circle(new_image,(lm[i],lm[i+1]),3,(150,0,255),cv2.FILLED)
+        for box,gen in zip(pp[0]['rois'],pp[0]['class_ids']):
+            cv2.rectangle(new_image,(int(box[0]),int(box[1])),(int(box[2]),int(box[3])),(0,0,255),2)
+            cv2.putText(new_image,str(gen),(int(box[0]),int(box[1])+10),cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),2,cv2.LINE_AA)
 
+        col_map = cv2.applyColorMap((255*face_landmarks).astype(np.uint8),cv2.COLORMAP_JET)
+        im_show = cv2.addWeighted(im_ov,0.5,col_map,0.5,0)
         while True and not exit:
             cv2.imshow('Prediction',new_image)
+            cv2.imshow('Landmarks',im_show)
             key = cv2.waitKey(10)
             #if key == ord('n'):
             #    break
