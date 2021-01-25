@@ -31,11 +31,11 @@ def train(opt):
         logdir = logdir+"_"+str(np.random.randint(0,1000))
         os.mkdir(logdir)
     
-    train_data = AllInOneData(opt.train_path,set='test',transforms=transforms.Compose([Normalizer(),Resizer()]))
+    train_data = AllInOneData(opt.train_path,set='train',transforms=transforms.Compose([Normalizer(),Resizer()]))
     train_generator = torch.utils.data.DataLoader(train_data,batch_size=opt.batch_size,shuffle=True,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
 
-    valid_data = AllInOneData(opt.train_path,set='test',transforms=transforms.Compose([Normalizer(),Resizer()]))
+    valid_data = AllInOneData(opt.train_path,set='validation',transforms=transforms.Compose([Normalizer(),Resizer()]))
     valid_generator = torch.utils.data.DataLoader(valid_data,batch_size=opt.batch_size,shuffle=False,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
     
@@ -59,10 +59,10 @@ def train(opt):
     
     for epoch in range(opt.epochs):
         model.train()
-        Losses = {k:0 for k in opt.heads}
+        Losses = {k:[] for k in opt.heads}
         description = f'Epoch:{epoch}| Total Loss:{verb_loss}'
         progress_bar = tqdm(train_generator,desc = description)
-        
+        Total_loss = []
         for sample in progress_bar:
                         
             imgs = sample['img'].to(device)
@@ -74,9 +74,8 @@ def train(opt):
             gt_race = sample['race'].to(device)
             gt_gender = sample['gender'].to(device)
             gt_skin = sample['skin'].to(device)
-            gt_emotions = sample['emotion'].to(device)
-            
-            optimizer.zero_grad()
+            gt_emotions = sample['emotion'].to(device)        
+
             out = model(imgs)
             annot = {'person':gt_person_bbox,'gender':gt_gender,
                      'face':gt_face_bbox,'emotions':gt_emotions,
@@ -90,13 +89,17 @@ def train(opt):
             loss.backward()
             optimizer.step()
             verb_loss = loss.detach().cpu().numpy()
-            writer.add_scalar('Train/Total',verb_loss,epoch)
+            Total_loss.append(verb_loss)
             description = f'Epoch:{epoch}| Total Loss:{verb_loss}|'
             for k,v in losses.items():
-                Losses[k]+=v.detach().cpu().numpy()
-                writer.add_scalar(f"Train/{k}",v.detach().cpu().numpy(),epoch)
+                Losses[k].append(v.detach().cpu().numpy())
                 description+=f'{k}:{round(np.mean(Losses[k]),1)}|'
             progress_bar.set_description(description)
+            optimizer.zero_grad()
+        
+        writer.add_scalar('Train/Total',round(np.mean(Total_loss),2),epoch)
+        for k in Losses.keys():
+            writer.add_scalar(f"Train/{k}",round(np.mean(Losses[k]),2),epoch)
             
         if epoch%opt.valid_step==0:
             im = imgs[0]
@@ -114,40 +117,45 @@ def train(opt):
             
             #VALIDATION STEPS
             model.eval()
-            valid_Losses = {k:0 for k in opt.heads}
-            
-            val_description = f'Validation| Total Loss:{verb_loss}'
-            progress_bar = tqdm(valid_generator,desc = val_description)
-    
-            for sample in progress_bar:   
-                imgs = sample['img'].to(device)
-                gt_person_bbox = sample['person_bbox'].to(device)
-                gt_face_bbox = sample['face_bbox'].to(device)
-                gt_pose = sample['pose'].to(device)
-                gt_face_landmarks = sample['face_landmarks'].to(device)
-                gt_age = sample['age'].to(device)
-                gt_race = sample['race'].to(device)
-                gt_gender = sample['gender'].to(device)
-                gt_skin = sample['skin'].to(device)
-                gt_emotions = sample['emotion'].to(device)
-                out = model(imgs)
-                annot = {'person':gt_person_bbox,'gender':gt_gender,
-                 'face':gt_face_bbox,'emotions':gt_emotions,
-                 'face_landmarks':gt_face_landmarks,
-                 'pose':gt_pose}
-        
-                losses, lm_mask = criterion(out,annot,out['anchors'])
-        
-                loss = torch.zeros(1).to(device)
-                loss = torch.sum(torch.cat(list(losses.values())))
-                verb_loss = loss.detach().cpu().numpy()
-                writer.add_scalar('Validation/Total',verb_loss,epoch)
-                val_description = f'Validation| Total Loss:{verb_loss}|'
-                for k,v in losses.items():
-                    valid_Losses[k]+=v.detach().cpu().numpy()
-                    writer.add_scalar(f"Validation/{k}",v.detach().cpu().numpy(),epoch)
-                    val_description+=f'{k}:{round(np.mean(valid_Losses[k]),1)}|'
-                progress_bar.set_description(val_description)
+            with torch.no_grad():
+                valid_Losses = {k:[] for k in opt.heads}
+
+                val_description = f'Validation| Total Loss:{verb_loss}'
+                progress_bar = tqdm(valid_generator,desc = val_description)
+                Total_loss = []
+                for sample in progress_bar:   
+                    imgs = sample['img'].to(device)
+                    gt_person_bbox = sample['person_bbox'].to(device)
+                    gt_face_bbox = sample['face_bbox'].to(device)
+                    gt_pose = sample['pose'].to(device)
+                    gt_face_landmarks = sample['face_landmarks'].to(device)
+                    gt_age = sample['age'].to(device)
+                    gt_race = sample['race'].to(device)
+                    gt_gender = sample['gender'].to(device)
+                    gt_skin = sample['skin'].to(device)
+                    gt_emotions = sample['emotion'].to(device)
+                    out = model(imgs)
+                    annot = {'person':gt_person_bbox,'gender':gt_gender,
+                     'face':gt_face_bbox,'emotions':gt_emotions,
+                     'face_landmarks':gt_face_landmarks,
+                     'pose':gt_pose}
+
+                    losses, lm_mask = criterion(out,annot,out['anchors'])
+
+                    loss = torch.zeros(1).to(device)
+                    loss = torch.sum(torch.cat(list(losses.values())))
+                    verb_loss = loss.detach().cpu().numpy()
+                    Total_loss.append(verb_loss)
+                    val_description = f'Validation| Total Loss:{verb_loss}|'
+                    for k,v in losses.items():
+                        valid_Losses[k].append(v.detach().cpu().numpy())
+                        val_description+=f'{k}:{round(np.mean(valid_Losses[k]),1)}|'
+                    progress_bar.set_description(val_description)
+
+                writer.add_scalar('Validation/Total',round(np.mean(Total_loss),2),epoch)
+                for k in valid_Losses.keys():
+                    writer.add_scalar(f"Validation/{k}",round(np.mean(valid_Losses[k]),2),epoch)
+
                 im = imgs[0]
                 regressBoxes = BBoxTransform()
                 clipBoxes = ClipBoxes()
@@ -155,15 +163,16 @@ def train(opt):
                   out['anchors'], out['person'], out['gender'],
                   regressBoxes, clipBoxes,
                   0.4, 0.4)
-            
+
                 writer.add_image_with_boxes('Validation/Box_prediction',im,pp[0]['rois'],epoch)
                 img2 = out['face_landmarks']
                 writer.add_images('Validation/landmarks_prediction',img2,epoch)
                 writer.add_images('Validation/landmark target', lm_mask,epoch)
 
                 if verb_loss<min_val_loss:
+                    print("The model improved and checkpoint is saved.")
                     torch.save(model.state_dict(),f'{logdir}/{opt.save_name.split(".pt")[0]}_best_epoch_{epoch}.pt')
-
+                    min_val_loss = verb_loss
                 
 
         if epoch%1000==0:
@@ -181,7 +190,7 @@ if __name__=='__main__':
     parser.add_argument('--epochs',type=int,default=10000)
     parser.add_argument('--valid_step',type=int,default=100)
     parser.add_argument('--lr',type=int,default=1e-3)
-    parser.add_argument('--batch_size',type=int,default=1)
+    parser.add_argument('--batch_size',type=int,default=3)
     parser.add_argument('--momentum',type=int,default=0.9)
     parser.add_argument('--wd',type=int,default=0.8)
     parser.add_argument('--optim',type=str,default='Adam')
