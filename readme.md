@@ -46,4 +46,10 @@ Each person has the following fields:
 7. <span style="color:red">"emotions"</span> (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
 8. <span style="color:red">"pose"</span> (int) [18,3]
 9. <span style="color:red">"face_landmarks"</span> (str) [70,2]
+
 For classification tasks the list of avaliable classes is pecified in the config.json file.
+The name of the labels document must correspond to the name of the image + "_meta" tag. For example, for img123.jpg --> img123_meta.json.
+An example dataset is avaliable [here](). Similar data can be collected from the internet using [this]() web scraped from my other repository.
+In order to make sure that the data is correct I suggest to run the dataset through dataset checks avaliable in the misc folder and to manually check it by the visual data tool from [this](repository).
+
+## Train
