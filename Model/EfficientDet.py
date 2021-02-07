@@ -247,7 +247,8 @@ class PoseMap(nn.Module):
     
     def forward(self,inputs):
         feats = []
-        prev_map = torch.zeros((inputs[0].shape[0],1,inputs[0].shape[2],inputs[0].shape[3])).cuda()
+        device = inputs[0].device
+        prev_map = torch.zeros((inputs[0].shape[0],1,inputs[0].shape[2],inputs[0].shape[3])).to(device)
         for feat, bn_list, up in zip(inputs[:3], self.bn_list,self.up_list):
             for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
                 feat = conv(feat)
@@ -272,8 +273,7 @@ class PoseMap2(nn.Module):
     "UNET-type regressor"
     def __init__(self,in_channels,onnx_export = False):
         super(PoseMap2,self).__init__()
-        self.in_channels1 = in_channels
-        
+                
         self.conv_11 = Separable_Conv_Block(in_channels[0],activation=True)
         self.conv_12 = Separable_Conv_Block(in_channels[0],activation=True)
 
@@ -286,7 +286,7 @@ class PoseMap2(nn.Module):
         self.conv_41 = Separable_Conv_Block(in_channels[3],activation=True)
         self.conv_42 = Separable_Conv_Block(in_channels[3],activation=True)
 
-        self.up = torch.nn.Upsample(scale_factor=2)
+        self.up = torch.nn.Upsample(scale_factor=2,mode='nearest')
         self.conv_3u2 = Separable_Conv_Block(in_channels[3],40,activation=True)
         self.conv_2u2 = Separable_Conv_Block(40,40,activation=True)
         self.conv_2u1 = Separable_Conv_Block(in_channels[2]+40,32,activation=True)
@@ -323,7 +323,82 @@ class PoseMap2(nn.Module):
         return out
         
 
+class PoseMap3(nn.Module):
+    "UNET-type regressor"
+    def __init__(self,onnx_export = False):
+        super(PoseMap3,self).__init__()
+        
+        self.preconv1 = torch.nn.ModuleList([Separable_Conv_Block(64,activation=True) for i in range(5)])
+        self.preconv2 = torch.nn.ModuleList([Separable_Conv_Block(64,activation=True) for i in range(5)])
 
+        self.up5_4 = torch.nn.Upsample(scale_factor = 2, mode = "nearest")
+        self.conv5pre = Separable_Conv_Block(64,activation=True)
+        self.conv5post = Separable_Conv_Block(128,64,activation=True)
+
+        self.up4_3 = torch.nn.Upsample(scale_factor = 2, mode = "nearest")
+        self.conv4pre = Separable_Conv_Block(64,activation=True)
+        self.conv4post = Separable_Conv_Block(128,64,activation=True)
+        
+        self.up3_2 = torch.nn.Upsample(scale_factor = 2, mode = "nearest")
+        self.conv3pre = Separable_Conv_Block(64,activation=True)
+        self.conv3post = Separable_Conv_Block(128,64,activation=True)
+
+        self.up2_1 = torch.nn.Upsample(scale_factor = 2, mode = "nearest")
+        self.conv2pre = Separable_Conv_Block(64,activation=True)
+        self.conv2post = Separable_Conv_Block(128,64,activation=True)
+
+        self.up1_0 = torch.nn.Upsample(scale_factor = 2, mode = "nearest")
+        self.conv1pre = Separable_Conv_Block(64,activation=True)
+        self.conv1post = Separable_Conv_Block(64,64,activation=True)
+
+        self.preconv = torch.nn.ModuleList([Separable_Conv_Block(i,i//2,activation=True) for i in [64,32]])
+        self.postconv = torch.nn.ModuleList([Separable_Conv_Block(i,i,activation=True) for i in [32,16]])
+        self.up = torch.nn.ModuleList([torch.nn.Upsample(scale_factor=2,mode="nearest") for i in range(2)])
+        self.last = Separable_Conv_Block(16,1,activation=True,norm=False)
+
+
+    def forward(self,inputs):
+        
+        inpts = [*inputs]
+        for i in range(len(inpts)):
+            inpts[i] = self.preconv1[i](inpts[i])
+            inpts[i] = self.preconv2[i](inpts[i])
+        p1,p2,p3,p4,p5 = inpts
+        p5 = self.up5_4(p5)
+        p5 = self.conv5pre(p5)
+        p4 = torch.cat((p4,p5),dim=1)
+        p4 = self.conv5post(p4)
+        p4 = self.up4_3(p4)
+        p4 = self.conv4pre(p4)
+        p3 = torch.cat((p3,p4),dim=1)
+        p3 = self.conv4post(p3)
+        p3 = self.up3_2(p3)
+        p3 = self.conv3pre(p3)
+        p2 = torch.cat((p3,p2),dim=1)
+        p2 = self.conv3post(p2)
+        p2 = self.up2_1(p2)
+        p2 = self.conv2pre(p2)
+        p1 =  torch.cat((p2,p1),dim=1)
+        p1 = self.conv2post(p1)
+        p1 = self.up1_0(p1)
+        p1 = self.conv1pre(p1)
+        
+        out = self.conv1post(p1)
+        for c1,c2,up in zip(self.preconv,self.postconv,self.up):
+            out = c1(out)
+            out = up(out)
+            out = c2(out)
+        
+        out = self.last(out)
+        return out
+
+
+        
+
+        return out
+
+
+        
 
 class Regressor(nn.Module):
     """
@@ -556,7 +631,7 @@ class EfficientDetMultiBackbone(nn.Module):
                     attention=True if compound_coef < 6 else False)
               for _ in range(self.fpn_cell_repeats[compound_coef])])
 
-        if len(self.heads) ==0:
+        if len(self.heads) == 0:
             print('Detecting persons only')
         with open(os.path.join(self.root_dir,'config.json'),'r') as f:
             config = json.load(f)
@@ -589,10 +664,10 @@ class EfficientDetMultiBackbone(nn.Module):
             self.fbox_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                    num_layers=self.box_class_repeats[self.compound_coef])
         if 'pose' in self.heads:
-            self.pose_regressor = PoseMap(in_channels=self.fpn_num_filters[self.compound_coef],
-                                   num_layers=self.box_class_repeats[self.compound_coef])
+            self.pose_regressor = PoseMap3()
         if 'face_landmarks' in self.heads:
-            self.fl_regressor = PoseMap2(in_channels=[3,16,24,40])
+            #self.fl_regressor = PoseMap2(in_channels=[3,16,24,40])
+            self.fl_regressor = PoseMap3()
         if 'age' in self.heads:
             self.age_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,reg_points=1,
                                    num_layers=self.box_class_repeats[self.compound_coef])
@@ -628,7 +703,8 @@ class EfficientDetMultiBackbone(nn.Module):
             age = self.age_regressor(features)
             out['age'] = age
         if "face_landmarks" in self.heads:
-            face_landmarks = self.fl_regressor((p0,p1,p2,p3))
+            #face_landmarks = self.fl_regressor((p0,p1,p2,p3))
+            face_landmarks = self.fl_regressor(features)
             out['face_landmarks'] = face_landmarks
         gender  = self.gender_classifier(features)
         out['gender'] = gender
@@ -667,13 +743,16 @@ if __name__ == '__main__':
     summary.close()
     print(out.shape)
     """
-    p0 = torch.randn((3,3,512,512))
-    p1 = torch.randn((3,16,256,256))
-    p2 = torch.randn((3,24,128,128))
-    p3 = torch.randn((3,40,64,64))
-    pm = PoseMap2([3,16,24,40])
-    out = pm([p0,p1,p2,p3])
-    summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP2',comment='try1')
-    summary.add_graph(pm,input_to_model=[[p0,p1,p2,p3]],verbose=True)
-    summary.close()
+    p1 = torch.randn((3,64,64,64))
+    p2 = torch.randn((3,64,32,32))
+    p3 = torch.randn((3,64,16,16))
+    p4 = torch.randn((3,64,8,8))
+    p5 = torch.randn((3,64,4,4))
+    #p5 = torch.randn((3,320,16,16))
+    pm = PoseMap3()
+    out = pm([p1,p2,p3,p4,p5])
     print(out.shape)
+    #summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP2',comment='try1')
+    #summary.add_graph(pm,input_to_model=[[p0,p1,p2,p3]],verbose=True)
+    #summary.close()
+    

@@ -23,7 +23,7 @@ from datetime import datetime
 
 def train(opt):
     date = datetime.date(datetime.now())
-    logs = './logs/'
+    logs = '../logs/'
     logdir = os.path.join(logs,str(date))
     if not os.path.exists(logdir):
         os.mkdir(logdir)
@@ -39,18 +39,23 @@ def train(opt):
     valid_generator = torch.utils.data.DataLoader(valid_data,batch_size=opt.batch_size,shuffle=False,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
     
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
     model = EfficientDetMultiBackbone(opt.train_path,compound_coef=0,heads=opt.heads)
     model.to(device)
 
     min_val_loss = 10e5
-
+    
     if opt.optim == 'Adam':
         optimizer = torch.optim.AdamW(model.parameters(),lr=opt.lr)
     else:
         optimizer = torch.optim.SGD(model.parameters(),lr=opt.lr,momentum = opt.momentum,nesterov=True)
 
-    criterion = MTLoss(heads = opt.heads)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, opt.lr, total_steps=None, epochs=opt.epochs,
+                                                    steps_per_epoch=len(train_generator), pct_start=0.1, anneal_strategy='cos',
+                                                    cycle_momentum=True, base_momentum=0.85, max_momentum=0.95, 
+                                                    div_factor=25.0, final_div_factor=1000.0, last_epoch=-1)
+
+    criterion = MTLoss(heads = opt.heads, device = device)
     
     print('Model is successfully initiated')
     print(f'Targets are {opt.heads}.')
@@ -83,11 +88,12 @@ def train(opt):
                      'pose':gt_pose}
             
             losses, lm_mask = criterion(out,annot,out['anchors'])
-            
             loss = torch.zeros(1).to(device)
             loss = torch.sum(torch.cat(list(losses.values())))
             loss.backward()
             optimizer.step()
+            scheduler.step() 
+
             verb_loss = loss.detach().cpu().numpy()
             Total_loss.append(verb_loss)
             description = f'Epoch:{epoch}| Total Loss:{verb_loss}|'
@@ -100,7 +106,7 @@ def train(opt):
         writer.add_scalar('Train/Total',round(np.mean(Total_loss),2),epoch)
         for k in Losses.keys():
             writer.add_scalar(f"Train/{k}",round(np.mean(Losses[k]),2),epoch)
-            
+           
         if epoch%opt.valid_step==0:
             im = imgs[0]
             regressBoxes = BBoxTransform()
@@ -175,7 +181,7 @@ def train(opt):
                     min_val_loss = verb_loss
                 
 
-        if epoch%1000==0:
+        if epoch%100==0:
             torch.save(model.state_dict(),f'{logdir}/{opt.save_name.split(".pt")[0]}_epoch_{epoch}.pt')
     torch.save(model.state_dict(),f'{logdir}/{opt.save_name.split(".pt")[0]}_last.pt')
     writer.close()
@@ -186,15 +192,15 @@ def train(opt):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train_path',type=str,default='./datasets/Train2021')
-    parser.add_argument('--epochs',type=int,default=10000)
-    parser.add_argument('--valid_step',type=int,default=100)
+    parser.add_argument('--train_path',type=str,default='/home/ROSENINSPECTION/ivoloshenko/dataset/Train2021')
+    parser.add_argument('--epochs',type=int,default=5000)
+    parser.add_argument('--valid_step',type=int,default=10)
     parser.add_argument('--lr',type=int,default=1e-3)
-    parser.add_argument('--batch_size',type=int,default=3)
+    parser.add_argument('--batch_size',type=int,default=32)
     parser.add_argument('--momentum',type=int,default=0.9)
     parser.add_argument('--wd',type=int,default=0.8)
     parser.add_argument('--optim',type=str,default='Adam')
-    parser.add_argument('--save_name',type=str,default='model4.pt')
+    parser.add_argument('--save_name',type=str,default='model.pt')
     parser.add_argument('--heads',nargs='+',default = ["gender","person","face_landmarks"])
 
     opt = parser.parse_args()

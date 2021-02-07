@@ -28,8 +28,9 @@ def calc_iou(a, b):
 
 
 class FocalLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, device):
         super(FocalLoss, self).__init__()
+        self.device = device
 
     def forward(self, classifications, regressions, anchors, annotations, **kwargs):
         alpha = 0.25
@@ -61,7 +62,7 @@ class FocalLoss(nn.Module):
                 if torch.cuda.is_available():
                     
                     alpha_factor = torch.ones_like(classification) * alpha
-                    alpha_factor = alpha_factor.cuda()
+                    alpha_factor = alpha_factor.to(self.device)
                     alpha_factor = 1. - alpha_factor
                     focal_weight = classification
                     focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
@@ -70,7 +71,7 @@ class FocalLoss(nn.Module):
                     
                     cls_loss = focal_weight * bce
                     
-                    regression_losses.append(torch.tensor(0).to(dtype).cuda())
+                    regression_losses.append(torch.tensor(0).to(dtype).to(self.device))
                     classification_losses.append(cls_loss.sum())
                 else:
                     
@@ -95,7 +96,7 @@ class FocalLoss(nn.Module):
             # compute the loss for classification
             targets = torch.ones_like(classification) * -1
             if torch.cuda.is_available():
-                targets = targets.cuda()
+                targets = targets.to(self.device)
 
             targets[torch.lt(IoU_max, 0.4), :] = 0
             global positive_indices
@@ -110,7 +111,7 @@ class FocalLoss(nn.Module):
 
             alpha_factor = torch.ones_like(targets) * alpha
             if torch.cuda.is_available():
-                alpha_factor = alpha_factor.cuda()
+                alpha_factor = alpha_factor.to(self.device)
 
             alpha_factor = torch.where(torch.eq(targets, 1.), alpha_factor, 1. - alpha_factor)
             focal_weight = torch.where(torch.eq(targets, 1.), 1. - classification, classification)
@@ -122,7 +123,7 @@ class FocalLoss(nn.Module):
 
             zeros = torch.zeros_like(cls_loss)
             if torch.cuda.is_available():
-                zeros = zeros.cuda()
+                zeros = zeros.to(self.device)
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
 
             classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors.to(dtype), min=1.0))
@@ -162,7 +163,7 @@ class FocalLoss(nn.Module):
                 regression_losses.append(regression_loss.mean())
             else:
                 if torch.cuda.is_available():
-                    regression_losses.append(torch.tensor(0).to(dtype).cuda())
+                    regression_losses.append(torch.tensor(0).to(dtype).to(self.device))
                 else:
                     regression_losses.append(torch.tensor(0).to(dtype))
 
@@ -214,7 +215,7 @@ class AdaptiveWingLoss(nn.Module):
         return (loss1.sum() + loss2.sum()) / (len(loss1) + len(loss2))
 
 class JointsLoss(nn.Module):
-    def __init__(self, use_target_weight=True):
+    def __init__(self,device, use_target_weight=True):
         super(JointsLoss, self).__init__()
         self.criterion = AdaptiveWingLoss()
         self.use_target_weight = use_target_weight
@@ -222,11 +223,12 @@ class JointsLoss(nn.Module):
         krnl = gaussian(self.k_size,3).reshape(self.k_size,1)
         krnl = np.outer(krnl,krnl)*255
         krnl = torch.from_numpy(krnl).reshape(1,1,self.k_size,self.k_size).type(torch.FloatTensor)
-        self.krnl = krnl.cuda()
+        self.krnl = krnl.to(device)
+        self.device = device
 
     def forward(self, output, target):
         num_joints = target.shape[1]
-        target_map = torch.zeros((target.shape[0],1,512,512)).cuda()
+        target_map = torch.zeros((target.shape[0],1,512,512)).to(self.device)
         target = target
         target = torch.clamp(target,0,511)
         for b in range(target.shape[0]):
@@ -242,11 +244,12 @@ class JointsLoss(nn.Module):
 
 
 class MTLoss(nn.Module):
-    def __init__(self,heads):
+    def __init__(self,heads, device):
         super(MTLoss,self).__init__()
         self.heads = heads
         self.total_loss = 0
         self.losses = {key:0 for key in self.heads}
+        self.device = device
 
     def forward(self,pred,annot,anchors):
         pred_person_bbox = pred['person']
@@ -254,7 +257,7 @@ class MTLoss(nn.Module):
         person_annot = annot['person']
         gender_annot = annot['gender']
         pg_anot = torch.cat((person_annot.long(),gender_annot.unsqueeze(2)),2)
-        gender_loss,person_loss = FocalLoss()(pred_gender,pred_person_bbox,anchors,pg_anot)
+        gender_loss,person_loss = FocalLoss(device=self.device)(pred_gender,pred_person_bbox,anchors,pg_anot)
         self.losses['gender'] = gender_loss
         self.losses['person'] = person_loss
 
@@ -264,25 +267,25 @@ class MTLoss(nn.Module):
             face_annot = annot['face']
             emotions_annot = annot['emotions']
             fe_anot = torch.cat((face_annot.long(),emotions_annot.unsqueeze(2)),2)
-            emotions_loss,face_loss = FocalLoss()(pred_emotions,pred_face_bbox,anchors,fe_anot)
+            emotions_loss,face_loss = FocalLoss(self.device)(pred_emotions,pred_face_bbox,anchors,fe_anot)
             self.losses['emotions'] = emotions_loss
             self.losses['face'] = face_loss
         elif 'face' in self.heads:
             pred_face_bbox = pred['face']
             face_annot = annot['face']
             fe_anot = torch.cat((face_annot.long(),gender_annot.unsqueeze(2)),2)
-            emotions_loss,face_loss = FocalLoss()(pred_gender,pred_face_bbox,anchors,fe_anot)
+            emotions_loss,face_loss = FocalLoss(self.device)(pred_gender,pred_face_bbox,anchors,fe_anot)
             self.losses['face'] = face_loss
 
         if 'face_landmarks' in self.heads:
             pred_lm = pred['face_landmarks']
             lm_anot = annot['face_landmarks']
-            lm_loss, lm_mask = JointsLoss(False)(pred_lm,lm_anot)
+            lm_loss, lm_mask = JointsLoss(self.device,False)(pred_lm,lm_anot)
             self.losses['face_landmarks'] = lm_loss*100
         if 'pose' in self.heads:
             pred_pose = pred['pose']
             pose_anot = annot['pose']
-            pose_loss = JointsLoss(False)(pred_pose,pose_anot)
+            pose_loss = JointsLoss(self.device,False)(pred_pose,pose_anot)
             self.losses['pose'] = pose_loss
 
 
