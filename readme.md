@@ -52,4 +52,10 @@ The name of the labels document must correspond to the name of the image + "_met
 An example dataset is avaliable [here](). Similar data can be collected from the internet using [this]() web scraped from my other repository.
 In order to make sure that the data is correct I suggest to run the dataset through dataset checks avaliable in the misc folder and to manually check it by the visual data tool from [this](repository).
 
-## Train
+## Reqirements
+
+## Training
+
+## Detection
+
+## TODO list
