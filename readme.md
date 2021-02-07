@@ -37,13 +37,13 @@ The major difference with the method proposed in the paper above, is that the ne
 
 The data is supposed to be provided in the $\*$.JSON format, where each person on the image is labled with the id, starting from 1, for example "id1".
 Each person has the following fields:
-1. "person_bbox" (int) (1,4)
-2. "face_bbox" (int) (1,4)
-3. "age" (int) 1
-4. "gender" (str) ["Male", "Female", "unknown"]
-5. "race" (str) ["white", "black", "latino hispanic", "middle eastern", "asian", "indian", "unknown"]
-6. "skin" (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
-7. "emotions" (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
-8. "pose" (int) [18,3]
-9. "face_landmarks" (str) [70,2]
+1. <span style="color:red">"person_bbox"</span> (int) (1,4)
+2. <span style="color:red">"face_bbox"</span> (int) (1,4)
+3. <span style="color:red">"age"</span> (int) 1
+4. <span style="color:red">"gender"</span> (str) ["Male", "Female", "unknown"]
+5. <span style="color:red">"race"</span> (str) ["white", "black", "latino hispanic", "middle eastern", "asian", "indian", "unknown"]
+6. <span style="color:red">"skin"</span> (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
+7. <span style="color:red">"emotions"</span> (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
+8. <span style="color:red">"pose"</span> (int) [18,3]
+9. <span style="color:red">"face_landmarks"</span> (str) [70,2]
 For classification tasks the list of avaliable classes is pecified in the config.json file.
