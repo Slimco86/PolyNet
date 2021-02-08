@@ -76,3 +76,8 @@ The network, loss and postprocessing would adapt according to specified heads, s
 ## Detection
 
 ## TODO list
+
+1. Add data Augmentation
+2. Extend PoseMap to larger scales to improve multiscale detection
+3. Implement adaptive weightning for total combined loss 
+4. Extend a postprocessing
