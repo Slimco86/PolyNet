@@ -57,7 +57,7 @@ In order to make sure that the data is correct I suggest to run the dataset thro
 
 ## Training
 Training was performed under very basic setup. Single GPU(V100), batch_size of 32. No data augmentation was used, yet. [OneCycleLR](https://pytorch.org/docs/stable/optim.html) scheduler was used for learning rate update over the total of 4000 epochs. It is observed that the Focal Loss induce higher gradients compared to Adaptive Wing Loss and, as a result, converges faster, as demonstrated on the figure below.
-[Training loss](/media/loss.png)
+![Training loss](/media/loss.png "training loss")
 Thus, the tasks are not optimized simultaniosly, as their corresponding optimums happend at different epochs.
 In future, adaptive loss combination has to be applied in order to equalize the convergence speed form multiple tasks.
 To train the network on your dataset you can use the [train.py](/Model/train.py) script. The training procedure includes the parameter "heads", which has to be used to specify which heads you want to attach and train. The avaliable options are given in the list:
