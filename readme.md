@@ -69,6 +69,7 @@ To train the network on your dataset you can use the [train.py](/Model/train.py)
 6. "gender"
 7. "emotions"
 8. "skin"
+
 The network, loss and postprocessing would adapt according to specified heads, so no further work has to be done.
 ## Detection
 
