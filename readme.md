@@ -41,7 +41,7 @@ Each person has the following fields:
 1. <span style="color:red">"person_bbox"</span> (int) (1,4)
 2. <span style="color:red">"face_bbox"</span> (int) (1,4)
 3. <span style="color:red">"age"</span> (int) 1
-4. <span style="color:red"><ex>"gender"</ex></span> (str) ["Male", "Female", "unknown"]
+4. <span style="color:red">"gender"</span> (str) ["Male", "Female", "unknown"]
 5. <span style="color:red">"race"</span> (str) ["white", "black", "latino hispanic", "middle eastern", "asian", "indian", "unknown"]
 6. <span style="color:red">*"skin"*</span> (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
 7. <span style="color:red">"emotions"</span> (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
@@ -56,9 +56,20 @@ In order to make sure that the data is correct I suggest to run the dataset thro
 ## Reqirements
 
 ## Training
-Training was done under very basic setup. No data augmentation is used yet. One cycle scheduler was used for learning rate update over the total of 4000 epochs. It is observed that the Focal Loss induce higher gradients compared to Adaptive Wing Loss and, as a result, converges faster. In future, adaptive loss combination has to be applied in order to equalize the convergence speed of multiple tasks.
-To train the network on your dataset you can use the [train.py](/Model/train.py) script. The training procedure
-
+Training was performed under very basic setup. Single GPU(V100), batch_size of 32. No data augmentation was used, yet. [OneCycleLR](https://pytorch.org/docs/stable/optim.html) scheduler was used for learning rate update over the total of 4000 epochs. It is observed that the Focal Loss induce higher gradients compared to Adaptive Wing Loss and, as a result, converges faster, as demonstrated on the figure below.
+[Training loss](/media/loss.png)
+Thus, the tasks are not optimized simultaniosly, as their corresponding optimums happend at different epochs.
+In future, adaptive loss combination has to be applied in order to equalize the convergence speed form multiple tasks.
+To train the network on your dataset you can use the [train.py](/Model/train.py) script. The training procedure includes the parameter "heads", which has to be used to specify which heads you want to attach and train. The avaliable options are given in the list:
+1. "person"
+2. "face"
+3. "pose"
+4. "age"
+5. "face_landmarks"
+6. "gender"
+7. "emotions"
+8. "skin"
+The network, loss and postprocessing would adapt according to specified heads, so no further work has to be done.
 ## Detection
 
 ## TODO list
