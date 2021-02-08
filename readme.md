@@ -41,7 +41,7 @@ Each person has the following fields:
 1. <span style="color:red">"person_bbox"</span> (int) (1,4)
 2. <span style="color:red">"face_bbox"</span> (int) (1,4)
 3. <span style="color:red">"age"</span> (int) 1
-4. <span style="color:red">"gender"</span> (str) ["Male", "Female", "unknown"]
+4. <span style="color:red"><ex>"gender"</ex></span> (str) ["Male", "Female", "unknown"]
 5. <span style="color:red">"race"</span> (str) ["white", "black", "latino hispanic", "middle eastern", "asian", "indian", "unknown"]
 6. <span style="color:red">*"skin"*</span> (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
 7. <span style="color:red">"emotions"</span> (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
