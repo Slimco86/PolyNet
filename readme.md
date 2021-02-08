@@ -16,7 +16,7 @@ Polynet is a multitask, human-centric network aiming to provide a detailed analy
 2. Pose landmarks (18 key-points)
 
 ## List of content:
-1. Architecture design
+1. [Architecture design](#1-arch)
 2. Data format
 3. Requirements
 3. Training
@@ -24,7 +24,7 @@ Polynet is a multitask, human-centric network aiming to provide a detailed analy
 5. TODO list
 
 
-## Architecture design
+## Architecture design [link](#1-arch)
 Due to the performance requirements and testing purposes, it is chosen to utilize [EfficientDet](https://arxiv.org/abs/1911.09070) network as the core architecture. Specifically, the accent is put on the smallest version of the network d0. The base code is taken from [Zylo117](https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch) repository. Initial EfficientDet architecture looks as follows: 
 ![EfficientDet architecture](/media/EfficientDet.jpeg "EfficientDet architecture")
 The network is fully-convolutional with performant feature extraction stem and bidirectional feature pyramid network, introduced in the paper. As well, the network benefits of extensive application of Swish activation function. Classification and bounding box prediction, in this project, is done exactly as it is performed  in the classical EfficientDet network. For each pair of regression/classification task additional head is attached to the network. Each classification is combined either with person bbox (full body) or with face bbox (face) prediction task according to relevancy. For example, emotion calssification are combined with face bounding box prediction. As a loss function [Focal Loss](https://arxiv.org/abs/1708.02002) is utilized.
