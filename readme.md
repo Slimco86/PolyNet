@@ -43,7 +43,7 @@ Each person has the following fields:
 3. <span style="color:red">"age"</span> (int) 1
 4. <span style="color:red">"gender"</span> (str) ["Male", "Female", "unknown"]
 5. <span style="color:red">"race"</span> (str) ["white", "black", "latino hispanic", "middle eastern", "asian", "indian", "unknown"]
-6. <span style="color:red">"skin"</span> (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
+6. <span style="color:red">*"skin"*</span> (str) ["acne", "blackhead", "bodybuilders", "body_fat", "eczema", "good_skin", "hives", "ichtyosis", "men_skin", "normal_skin", "psoriasis, "rosacea", "seborrheic_dermatitis", "tired_eyes", "virtiligo", "unknown"]
 7. <span style="color:red">"emotions"</span> (str) ["happy", "sad", "neutral", "angry", "fear", "surprise", "disgust", "unknown"]
 8. <span style="color:red">"pose"</span> (int) [18,3]
 9. <span style="color:red">"face_landmarks"</span> (str) [70,2]
@@ -56,6 +56,8 @@ In order to make sure that the data is correct I suggest to run the dataset thro
 ## Reqirements
 
 ## Training
+Training was done under very basic setup. No data augmentation is used yet. One cycle scheduler was used for learning rate update over the total of 4000 epochs. It is observed that the Focal Loss induce higher gradients compared to Adaptive Wing Loss and, as a result, converges faster. In future, adaptive loss combination has to be applied in order to equalize the convergence speed of multiple tasks.
+To train the network on your dataset you can use the [train.py](/Model/train.py) script. The training procedure
 
 ## Detection
 
