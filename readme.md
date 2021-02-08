@@ -1,5 +1,5 @@
 # PolyNet
-![Example](/media/example.gif "Output example")
+![Example](/media/example1.gif "Output example")
 ## Introduction
 Polynet is a multitask, human-centric network aiming to provide a detailed analysis and tracking for multi-human view scenes. The main objective and the challange is to achieve real-time on edge-device performance to make it feasible for certain applications and to fulfill GDPR requirements. In particular, the tasks can be split into three categories: dtection, classification and landmark estimation.
 ### Detection:
