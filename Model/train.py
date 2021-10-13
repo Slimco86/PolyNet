@@ -39,7 +39,7 @@ def train(opt):
     valid_generator = torch.utils.data.DataLoader(valid_data,batch_size=opt.batch_size,shuffle=False,num_workers=8,
                                                     collate_fn=collater,drop_last=True)
     
-    device = 'cuda:1' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
     model = EfficientDetMultiBackbone(opt.train_path,compound_coef=0,heads=opt.heads)
     model.to(device)
 
@@ -106,9 +106,10 @@ def train(opt):
         writer.add_scalar('Train/Total',round(np.mean(Total_loss),2),epoch)
         for k in Losses.keys():
             writer.add_scalar(f"Train/{k}",round(np.mean(Losses[k]),2),epoch)
-           
+        
         if epoch%opt.valid_step==0:
-            im = imgs[0]
+            im = (imgs[0]+1)/2*255
+            
             regressBoxes = BBoxTransform()
             clipBoxes = ClipBoxes()
             pp = postprocess(imgs,
@@ -118,6 +119,9 @@ def train(opt):
             
             writer.add_image_with_boxes('Train/Box_prediction',im,pp[0]['rois'],epoch)
             img2 = out['face_landmarks']
+            if img2.shape[1]>3:
+                img2 = img2.sum(axis=1).unsqueeze(1)*255
+                lm_mask = lm_mask.sum(axis=1).unsqueeze(1)*255
             writer.add_images('Train/landmarks_prediction',img2,epoch)
             writer.add_images('Train/landmark target', lm_mask,epoch)
             
@@ -162,7 +166,8 @@ def train(opt):
                 for k in valid_Losses.keys():
                     writer.add_scalar(f"Validation/{k}",round(np.mean(valid_Losses[k]),2),epoch)
 
-                im = imgs[0]
+                im = (imgs[0]+1)/2*255
+                
                 regressBoxes = BBoxTransform()
                 clipBoxes = ClipBoxes()
                 pp = postprocess(imgs,
@@ -171,7 +176,11 @@ def train(opt):
                   0.4, 0.4)
 
                 writer.add_image_with_boxes('Validation/Box_prediction',im,pp[0]['rois'],epoch)
+                
                 img2 = out['face_landmarks']
+                if img2.shape[1]>3:
+                    img2 = img2.sum(axis=1).unsqueeze(1)*255
+                    lm_mask = lm_mask.sum(axis=1).unsqueeze(1)*255
                 writer.add_images('Validation/landmarks_prediction',img2,epoch)
                 writer.add_images('Validation/landmark target', lm_mask,epoch)
 
@@ -192,11 +201,11 @@ def train(opt):
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train_path',type=str,default='/home/ROSENINSPECTION/ivoloshenko/dataset/Train2021')
+    parser.add_argument('--train_path',type=str,default='/home/rosen.user/Documents/Smart_Mirror_rework/datasets/Train2021')
     parser.add_argument('--epochs',type=int,default=5000)
     parser.add_argument('--valid_step',type=int,default=10)
     parser.add_argument('--lr',type=int,default=1e-3)
-    parser.add_argument('--batch_size',type=int,default=32)
+    parser.add_argument('--batch_size',type=int,default=2)
     parser.add_argument('--momentum',type=int,default=0.9)
     parser.add_argument('--wd',type=int,default=0.8)
     parser.add_argument('--optim',type=str,default='Adam')

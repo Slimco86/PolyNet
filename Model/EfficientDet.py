@@ -8,6 +8,7 @@ from util import MemoryEfficientSwish, Swish
 from util import Conv2dSamePadding, MaxPool2dSamePadding, Anchors
 import json
 import os
+import torch.nn.functional as F
 
 def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, 4], thresh)
@@ -216,17 +217,54 @@ class UpsampleBlock(nn.Module):
     Each pass, doubles the map edge size (quadropouls resolution).
     This is used to build the hour glass decoder from different resolutions. 
     """
-    def __init__(self,in_channels,scale_factor):
+    def __init__(self,in_channels,out_channels,norm=False,activation=False):
         super(UpsampleBlock,self).__init__()
-        self.sf = scale_factor
         self.upscale = torch.nn.ConvTranspose2d(in_channels,in_channels,kernel_size=2,stride=2)
-        self.conv = Separable_Conv_Block(in_channels, in_channels, norm=False, activation=False)
+        self.bn = nn.BatchNorm2d(in_channels)
+        self.act = Swish()
+        self.conv = Separable_Conv_Block(in_channels, out_channels, norm=norm, activation=activation)
     
     def forward(self,input):
-        for i in range(self.sf):
-            input = self.upscale(input)
-            input = self.conv(input)
+        
+        input = self.upscale(input)
+        input = self.bn(input)
+        input = self.act(input)
+        input = self.conv(input)
         return input
+      
+
+
+class HourGlass(nn.Module):
+    def __init__(self,n_feats,n_points):
+        super(HourGlass,self).__init__()
+        self.n_feats = n_feats
+        self.points = n_points
+        self.ups = nn.ModuleList([UpsampleBlock(64,64,True,True) for _ in range(n_feats)])
+        self.preconv = nn.ModuleList([Separable_Conv_Block(64,activation=True) for _ in range(n_feats)])
+        
+        self.emb_down = nn.Conv2d(64,n_points*2,64//(2*n_feats))
+        self.emb_up = nn.Conv2d(self.points*2,64,1)
+        self.residuals = []
+        self.final_conv = Separable_Conv_Block(64,self.points)
+        self.sigm = nn.Sigmoid()
+
+    def forward(self,inputs):
+        self.residuals = inputs[:self.n_feats]
+        
+            
+        out = inputs[:self.n_feats][-1]
+        out = self.emb_down(out)
+        out = self.emb_up(out)
+        
+        for i,_ in enumerate(inputs[:self.n_feats]):
+            out = self.preconv[i](out)+self.residuals[-i-1]
+            out = self.ups[i](out)
+        out = self.final_conv(out)
+        out = self.sigm(out)
+        return out
+
+
+
 
 class PoseMap(nn.Module):
     def __init__(self,in_channels,num_layers,onnx_export=False):
@@ -238,7 +276,7 @@ class PoseMap(nn.Module):
         self.bn_list = nn.ModuleList(
             [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
              range(3)])
-        self.up_list = nn.ModuleList([UpsampleBlock(1,scale_factor=i) for i in [2,3,4]])
+        self.up_list = nn.ModuleList([UpsampleBlock(1) for _ in range(3)])
         self.header = Separable_Conv_Block(in_channels, 1, norm=False, activation=False)
         self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
         self.final = Separable_Conv_Block(3,1,norm=False,activation=False)
@@ -393,9 +431,8 @@ class PoseMap3(nn.Module):
         return out
 
 
-        
 
-        return out
+
 
 
         
@@ -664,10 +701,12 @@ class EfficientDetMultiBackbone(nn.Module):
             self.fbox_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                    num_layers=self.box_class_repeats[self.compound_coef])
         if 'pose' in self.heads:
-            self.pose_regressor = PoseMap3()
+            #self.pose_regressor = PoseMap3()
+            self.fl_regressor = HourGlass(4,18)
         if 'face_landmarks' in self.heads:
             #self.fl_regressor = PoseMap2(in_channels=[3,16,24,40])
-            self.fl_regressor = PoseMap3()
+            #self.fl_regressor = PoseMap3()
+            self.fl_regressor = HourGlass(4,70)
         if 'age' in self.heads:
             self.age_regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,reg_points=1,
                                    num_layers=self.box_class_repeats[self.compound_coef])
@@ -742,7 +781,7 @@ if __name__ == '__main__':
     summary.add_graph(pm,input_to_model=[[p3,p4,p5]],verbose=True)
     summary.close()
     print(out.shape)
-    """
+    
     p1 = torch.randn((3,64,64,64))
     p2 = torch.randn((3,64,32,32))
     p3 = torch.randn((3,64,16,16))
@@ -752,7 +791,19 @@ if __name__ == '__main__':
     pm = PoseMap3()
     out = pm([p1,p2,p3,p4,p5])
     print(out.shape)
-    #summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP2',comment='try1')
-    #summary.add_graph(pm,input_to_model=[[p0,p1,p2,p3]],verbose=True)
-    #summary.close()
+    summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'POSEMAP3',comment='try1')
+    summary.add_graph(pm,input_to_model=[[p1,p2,p3,p4,p5]],verbose=True)
+    summary.close()
+    """
+    p1 = torch.randn((3,64,64,64))
+    p2 = torch.randn((3,64,32,32))
+    p3 = torch.randn((3,64,16,16))
+    p4 = torch.randn((3,64,8,8))
+    p5 = torch.randn((3,64,4,4))
+    hg = HourGlass(3,40)
+    out = hg([p1,p2,p3,p4,p5])
+    print(out.shape)
+    summary = tensorboardX.SummaryWriter(logdir='logs',filename_suffix=f'HourGlass',comment='try1')
+    summary.add_graph(hg,input_to_model=[[p1,p2,p3,p4,p5]],verbose=True)
+    summary.close()
     

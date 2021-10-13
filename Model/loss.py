@@ -199,7 +199,7 @@ class AdaptiveWingLoss(nn.Module):
         :param target: BxNxHxH
         :return:
         '''
-
+       
         y = target
         y_hat = pred
         delta_y = (y - y_hat).abs()
@@ -241,6 +241,42 @@ class JointsLoss(nn.Module):
         return (loss / num_joints).unsqueeze(0) , lm_mask
 
 
+class JointsLoss2(nn.Module):
+    def __init__(self,device, use_target_weight=True):
+        super(JointsLoss2, self).__init__()
+        self.criterion = AdaptiveWingLoss()
+        self.use_target_weight = use_target_weight
+        self.k_size=7
+        krnl = gaussian(self.k_size,3).reshape(self.k_size,1)
+        krnl = np.outer(krnl,krnl)*255
+        krnl = torch.from_numpy(krnl).reshape(1,1,self.k_size,self.k_size).type(torch.FloatTensor)
+        self.krnl = krnl.to(device)
+        
+        self.device = device
+
+    def forward(self, output, target):
+        
+        num_joints = target.shape[2]
+        scale = 512//output.shape[-1]
+        self.krnl = self.krnl.repeat(num_joints,num_joints,1,1)
+        target_map = torch.zeros((target.shape[0],num_joints,512//scale,512//scale)).to(self.device)
+        target = torch.clamp(target,0,511)
+        """
+        for b in range(target.shape[0]):
+            target_map[b,:,(target[b,:,:,1]//scale).long(),(target[b,:,:,0]//scale).long()] = 1
+        """
+        for b in range(target.shape[0]):
+            for j in range(target.shape[2]):
+                for p in range(target.shape[1]):
+                    target_map[b,j,(target[b,p,j,1]//scale).long(),(target[b,p,j,0]//scale).long()] = 1
+        
+        # Gausian kernel for heatmap generation!!!
+        lm_mask = torch.nn.functional.conv2d(target_map,self.krnl,padding=(self.k_size-1)//2)
+        lm_mask = lm_mask/torch.max(lm_mask)
+        loss = self.criterion(output,lm_mask)        
+        return (loss / 1).unsqueeze(0) , lm_mask
+
+
 
 
 class MTLoss(nn.Module):
@@ -280,12 +316,12 @@ class MTLoss(nn.Module):
         if 'face_landmarks' in self.heads:
             pred_lm = pred['face_landmarks']
             lm_anot = annot['face_landmarks']
-            lm_loss, lm_mask = JointsLoss(self.device,False)(pred_lm,lm_anot)
+            lm_loss, lm_mask = JointsLoss2(self.device,False)(pred_lm,lm_anot)
             self.losses['face_landmarks'] = lm_loss*100
         if 'pose' in self.heads:
             pred_pose = pred['pose']
             pose_anot = annot['pose']
-            pose_loss = JointsLoss(self.device,False)(pred_pose,pose_anot)
+            pose_loss = JointsLoss2(self.device,False)(pred_pose,pose_anot)
             self.losses['pose'] = pose_loss
 
 

@@ -15,9 +15,11 @@ import time
 
 
 
-
-cap = cv2.VideoCapture(0)
-path = 'logs/2021-01-30/model_epoch_3500.pt'
+Genders = ["Male", "Female", "unknown"]
+lm_threshold = 0.05
+cap = cv2.VideoCapture("/home/rosen.user/Videos/SPOON.mp4")
+cap.set(1,52*24)
+path = 'logs/2021-01-30/model_epoch_3000.pt'
 model = EfficientDetMultiBackbone('./datasets/Train2021',compound_coef=0)
 
 if torch.cuda.is_available():
@@ -31,7 +33,7 @@ mean = np.array([0.66, 0.58, 0.64])
 std=np.array([0.22, 0.22, 0.23])
 img_size = 512
 exit = False
-
+i = 0 
 while True:
     start = time.time()
     if exit:
@@ -70,7 +72,10 @@ while True:
         face_landmarks = out['face_landmarks']
         face_landmarks = face_landmarks.permute(0,2,3,1)
         face_landmarks = face_landmarks[0].detach().cpu().numpy().astype(np.float32)
-        face_landmarks = face_landmarks/np.max(face_landmarks)
+        if np.max(face_landmarks) < lm_threshold:
+            face_landmarks = np.zeros((512,512))
+        else:
+            face_landmarks = face_landmarks/np.max(face_landmarks)
 
         regressBoxes = BBoxTransform()
         clipBoxes = ClipBoxes()
@@ -83,17 +88,23 @@ while True:
         im_ov = disp_img*255
         im_ov = im_ov.astype(np.uint8)
         im_ov = cv2.cvtColor(im_ov,cv2.COLOR_BGR2RGB)
-        print(np.max(im_ov),np.min(im_ov))
+        
         for box,gen in zip(pp[0]['rois'],pp[0]['class_ids']):
             cv2.rectangle(im_ov,(int(box[0]),int(box[1])),(int(box[2]),int(box[3])),(0,0,255),2)
-            cv2.putText(im_ov,str(gen),(int(box[0]),int(box[1])+10),cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),2,cv2.LINE_AA)
+            cv2.putText(im_ov,str(Genders[gen]),(int(box[0]),int(box[1])+10),cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),2,cv2.LINE_AA)
             cv2.putText(im_ov,f"FPS:{round(1/(end-start),1)}",(10,500),cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,0,255),2,cv2.LINE_AA)
 
         col_map = cv2.applyColorMap((255*face_landmarks).astype(np.uint8),cv2.COLORMAP_JET)
         im_show = cv2.addWeighted(im_ov,0.5,col_map,0.5,0)
+
         while True and not exit:
             cv2.imshow('Prediction',im_ov)
             cv2.imshow('Landmarks',im_show)
+            save_img = np.zeros((512,1024,3))
+            save_img[:,:512,:] = im_ov
+            save_img[:,512:,:] = im_show
+            cv2.imwrite(f'fr{i}.jpg',save_img,)
+            i+=1
             key = cv2.waitKey(10)
             #if key == ord('n'):
             #    break
