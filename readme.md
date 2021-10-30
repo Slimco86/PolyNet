@@ -32,7 +32,9 @@ The network is fully-convolutional with a performant feature extraction stem and
 For landmark prediction, an additional module/head has been developed which is performed on the same input features as all the other heads. The module takes features on multiple scales extracted from bifpn (p1,p2,p3,p4,p5) and performs a [HourGlass](https://arxiv.org/abs/1603.06937)-like upscaling to predict a probability heatmap for landmarks positions on the original input scale. The architecture is shown below:
 ![PoseMap architecture](/media/PoseMap.png "PoseMap architecture")
 
-The major difference with the method proposed in the paper above, is that the network tries to predict all the landmarks at once, on a single channel heatmap, rather than a single landmark per channel. This is governed by the fact that the total amount of the landmarks on the output is a variable and initially is unknown. As a result, this induces an additional postprocessing step for landmark identification and filtering.
+The major difference with the method proposed in the paper above, is that the network tries to predict all the landmarks at once, on a single channel heatmap, rather than a single landmark per channel. This is governed by the fact that the total amount of the landmarks on the output is a variable and initially is unknown. As a result, this induces an additional postprocessing step for landmark identification and filtering. The rsulting keypoint map prediction on the training data looks like this:
+
+![KP prediction](/media/KP-pred.png "Keypoint prediction")
 
 For optimizing this head, [Adaptive Wing Loss](https://arxiv.org/abs/1904.07399) is used, which allows to penalize missing the correct prediction and slightly relaxes the penalty for false positives.  
 
